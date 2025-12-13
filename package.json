@@ -2,10 +2,14 @@
   "name": "remotion-caption-backend",
   "private": true,
   "type": "commonjs",
+ 
   "scripts": {
     "dev": "ts-node src/index.ts",
-    "render": "npx remotion render remotion/index.ts CaptionedVideo outputs/output.mp4"
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
+
+
   "dependencies": {
     "@remotion/google-fonts": "^4.0.0",
     "@remotion/renderer": "^4.0.387",
