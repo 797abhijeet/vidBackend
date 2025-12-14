@@ -2,17 +2,16 @@
   "name": "remotion-caption-backend",
   "private": true,
   "type": "commonjs",
- 
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
-
-
   "dependencies": {
+    "@remotion/bundler": "^4.0.388",
     "@remotion/google-fonts": "^4.0.0",
-    "@remotion/renderer": "^4.0.387",
+    "@remotion/renderer": "^4.0.388",
+    "assemblyai": "^4.22.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -22,7 +21,7 @@
     "openai": "^4.56.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "remotion": "^4.0.0"
+    "remotion": "^4.0.388"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
