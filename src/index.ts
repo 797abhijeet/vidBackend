@@ -19,12 +19,20 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 /* ---------- APP ---------- */
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "100mb" })); // Increased for video uploads
 
+// For Render deployment, use /tmp directory for file storage
 const ROOT = process.cwd();
-const uploadDir = path.join(ROOT, "uploads");
-const outputDir = path.join(ROOT, "outputs");
+const isRender =
+  process.env.RENDER === "true" || process.env.RENDER_EXTERNAL_URL;
+const uploadDir = isRender
+  ? path.join("/tmp", "uploads")
+  : path.join(ROOT, "uploads");
+const outputDir = isRender
+  ? path.join("/tmp", "outputs")
+  : path.join(ROOT, "outputs");
 
+// Create directories if they don't exist
 fs.mkdirSync(uploadDir, { recursive: true });
 fs.mkdirSync(outputDir, { recursive: true });
 
@@ -38,141 +46,198 @@ const upload = multer({
     destination: uploadDir,
     filename: (_, file, cb) => {
       const safe = file.originalname.replace(/[^\w.-]/g, "_");
-      cb(null, `${Date.now()}-${safe}`);
+      cb(null, `safe-${Date.now()}-${safe}`);
     },
   }),
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit
+  },
 });
 
-/* ---------- HELPERS ---------- */
-function normalizePath(p: string) {
-  return p.replace(/\\/g, "/");
+/* ---------- BASE URL HELPER ---------- */
+function getBaseUrl(): string {
+  if (process.env.RENDER_EXTERNAL_URL) {
+    return process.env.RENDER_EXTERNAL_URL;
+  }
+  const port = process.env.PORT || "5000";
+  return `http://localhost:${port}`;
 }
 
-function urlToLocalPath(videoPath: string): string {
-  if (videoPath.startsWith("http")) {
-    const u = new URL(videoPath);
-    return path.join(ROOT, decodeURIComponent(u.pathname));
-  }
+/* ---------- HEALTH CHECK ---------- */
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "Captionify Backend API",
+    endpoints: ["POST /upload", "POST /captions", "POST /render"],
+  });
+});
 
-  if (videoPath.startsWith("/uploads")) {
-    return path.join(ROOT, videoPath.slice(1));
-  }
-
-  return videoPath;
-}
-
-/* ---------- UPLOAD + NORMALIZE ---------- */
+/* ---------- UPLOAD ---------- */
 app.post("/upload", upload.single("video"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: "Video required" });
+    return res.status(400).json({ error: "Video file required" });
   }
 
-  const inputPath = req.file.path;
-  const outputName = `safe-${Date.now()}.mp4`;
-  const outputPath = path.join(uploadDir, outputName);
-
   try {
+    const inputPath = req.file.path;
+    const outputName = path
+      .basename(req.file.filename)
+      .replace(/(\.[^/.]+)$/, ".mp4");
+    const outputPath = path.join(uploadDir, outputName);
+
+    console.log(`Processing upload: ${req.file.originalname} -> ${outputName}`);
+
     await new Promise<void>((resolve, reject) => {
-      // In your /upload endpoint, update FFmpeg command:
       ffmpeg(inputPath)
         .videoCodec("libx264")
-        .audioCodec("copy") // Keep original audio codec instead of re-encoding
+        .audioCodec("copy")
         .outputOptions([
           "-pix_fmt yuv420p",
           "-movflags faststart",
           "-r 30",
-          "-avoid_negative_ts make_zero", // Prevent timestamp issues
+          "-avoid_negative_ts make_zero",
         ])
-        .on("end", () => resolve())
-        .on("error", (err: any) => reject(err))
+        .on("progress", (progress: { percent: number; }) => {
+          if (progress.percent) {
+            console.log(`Processing: ${Math.floor(progress.percent)}%`);
+          }
+        })
+        .on("end", () => {
+          console.log(`Video processed: ${outputPath}`);
+          resolve();
+        })
+        .on("error", (err: any) => {
+          console.error("FFmpeg error:", err);
+          reject(err);
+        })
         .save(outputPath);
     });
 
-    if (!fs.existsSync(outputPath)) {
-      throw new Error("FFmpeg output file not created");
+    // Clean up original upload
+    if (fs.existsSync(inputPath) && inputPath !== outputPath) {
+      fs.unlinkSync(inputPath);
     }
 
-    fs.unlinkSync(inputPath);
+    const videoUrl = `${getBaseUrl()}/uploads/${outputName}`;
+    console.log(`Upload complete: ${videoUrl}`);
 
     res.json({
-      videoPath: `http://localhost:5000/uploads/${outputName}`,
+      success: true,
+      videoPath: videoUrl,
+      filename: outputName,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("UPLOAD ERROR:", err);
-    if (fs.existsSync(inputPath)) {
-      console.warn("Keeping original file:", inputPath);
-    }
-    res.status(500).json({ error: "Video processing failed" });
+    res.status(500).json({
+      error: "Video processing failed",
+      details: err.message,
+    });
   }
 });
 
 /* ---------- CAPTIONS ---------- */
 app.post("/captions", async (req, res) => {
   try {
-    const localPath = normalizePath(urlToLocalPath(req.body.videoPath));
+    const { videoPath } = req.body;
+
+    if (!videoPath) {
+      return res.status(400).json({ error: "videoPath is required" });
+    }
+
+    console.log(`Generating captions for: ${videoPath}`);
+
+    // Extract filename from URL or path
+    let filename = videoPath;
+    if (videoPath.includes("/uploads/")) {
+      filename = videoPath.split("/uploads/")[1];
+    }
+
+    const localPath = path.join(uploadDir, filename);
 
     if (!fs.existsSync(localPath)) {
-      throw new Error("Video file not found on server");
+      throw new Error(`Video file not found: ${filename}`);
     }
 
     const captions = await generateCaptions(localPath);
-    res.json({ captions });
+
+    console.log(`Generated ${captions.length} captions`);
+
+    res.json({
+      success: true,
+      captions: captions,
+    });
   } catch (err: any) {
     console.error("CAPTIONS ERROR:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: "Caption generation failed",
+      details: err.message,
+    });
   }
 });
 
 /* ---------- RENDER ---------- */
 app.post("/render", async (req, res) => {
   try {
-    const { videoPath, captions, style } = req.body;
+    const { videoPath, captions, style = "bottom" } = req.body;
 
     if (!videoPath || !Array.isArray(captions)) {
       return res.status(400).json({
-        error: "Invalid render payload",
+        error: "videoPath and captions array are required",
       });
     }
 
-    const localVideoPath = normalizePath(urlToLocalPath(videoPath));
+    console.log(
+      `Starting render: ${captions.length} captions, style: ${style}`
+    );
+
+    // Extract filename from URL or path
+    let filename = videoPath;
+    if (videoPath.includes("/uploads/")) {
+      filename = videoPath.split("/uploads/")[1];
+    }
+
+    const localVideoPath = path.join(uploadDir, filename);
 
     if (!fs.existsSync(localVideoPath)) {
-      // Try to find the file in uploads directory
-      const fileName = path.basename(videoPath);
-      const altPath = path.join(uploadDir, fileName);
-
-      if (fs.existsSync(altPath)) {
-        console.log(`Found video at alternative path: ${altPath}`);
-        const output = await renderVideo({
-          videoPath: altPath, // Pass local path to renderVideo
-          captions,
-          style,
-        });
-
-        res.json({
-          outputUrl: `/outputs/${path.basename(output)}`,
-        });
-      } else {
-        throw new Error(`Video file not found: ${localVideoPath}`);
-      }
-    } else {
-      const output = await renderVideo({
-        videoPath: localVideoPath,
-        captions,
-        style,
-      });
-
-      res.json({
-        outputUrl: `/outputs/${path.basename(output)}`,
-      });
+      throw new Error(`Video file not found: ${filename}`);
     }
+
+    const output = await renderVideo({
+      videoPath: localVideoPath,
+      captions,
+      style,
+    });
+
+    const outputFilename = path.basename(output);
+    const outputUrl = `${getBaseUrl()}/outputs/${outputFilename}`;
+
+    console.log(`Render complete: ${outputUrl}`);
+
+    res.json({
+      success: true,
+      outputUrl: outputUrl,
+      filename: outputFilename,
+    });
   } catch (err: any) {
     console.error("RENDER ERROR:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: "Video rendering failed",
+      details: err.message,
+    });
   }
 });
 
-/* ---------- START ---------- */
-app.listen(5000, () => {
-  console.log("🚀 Backend running at http://localhost:5000");
+/* ---------- START SERVER ---------- */
+const PORT = parseInt(process.env.PORT || "5000", 10);
+const HOST = "0.0.0.0";
+
+app.listen(PORT, HOST, () => {
+  console.log(`
+🚀 Captionify Backend API
+📡 URL: ${getBaseUrl()}
+📍 Port: ${PORT}
+📁 Uploads: ${uploadDir}
+📁 Outputs: ${outputDir}
+⚡ Environment: ${isRender ? "Render (Cloud)" : "Local"}
+  `);
 });
