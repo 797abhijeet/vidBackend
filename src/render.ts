@@ -25,20 +25,25 @@ export async function renderVideo({
   style: string;
 }) {
   const ROOT = process.cwd();
-  const isRender = process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL;
-  const outputDir = isRender ? path.join("/tmp", "outputs") : path.join(ROOT, "outputs");
+  const isRender =
+    process.env.RENDER === "true" || process.env.RENDER_EXTERNAL_URL;
   
-  // Ensure output directory exists
-  fs.mkdirSync(outputDir, { recursive: true });
+  // REMOVE outputDir - use uploads directory instead
+  const uploadDir = isRender
+    ? path.join("/tmp", "uploads")
+    : path.join(ROOT, "uploads");
+  
+  // Ensure uploads directory exists
+  fs.mkdirSync(uploadDir, { recursive: true });
 
   // Bundle Remotion (only once)
   if (!bundledServeUrl) {
     console.log("📦 Bundling Remotion components...");
-    
+
     try {
       const remotionRoot = path.resolve(ROOT, "../remotion");
       const remotionEntry = path.join(remotionRoot, "src/index.ts");
-      
+
       // Check if Remotion project exists, fallback to local
       if (!fs.existsSync(remotionEntry)) {
         console.warn("Remotion project not found, using local fallback");
@@ -76,22 +81,24 @@ export async function renderVideo({
   const composition = compositions.find((c) => c.id === "CaptionedVideo");
 
   if (!composition) {
-    throw new Error("'CaptionedVideo' composition not found in Remotion bundle");
+    throw new Error(
+      "'CaptionedVideo' composition not found in Remotion bundle"
+    );
   }
 
-  // Create output path
-  const outputPath = path.join(outputDir, `render-${Date.now()}.mp4`);
-  
+  // Create output path IN UPLOADS directory (not outputs)
+  const outputPath = path.join(uploadDir, `render-${Date.now()}.mp4`);
+
   // Convert videoPath to URL
   let videoUrl = videoPath;
   if (!videoPath.startsWith("http")) {
     const fileName = path.basename(videoPath);
     videoUrl = `${getBaseUrl()}/uploads/${fileName}`;
-    
+
     if (!fs.existsSync(videoPath)) {
       throw new Error(`Video file not found at: ${videoPath}`);
     }
-    
+
     console.log(`Converted local path to URL: ${videoPath} -> ${videoUrl}`);
   }
 
@@ -121,24 +128,24 @@ export async function renderVideo({
     });
 
     console.log(`✅ Render completed: ${outputPath}`);
-    
+
     // Verify file was created
     if (!fs.existsSync(outputPath)) {
       throw new Error("Rendered video file was not created");
     }
-    
+
     const stats = fs.statSync(outputPath);
     console.log(`📊 File size: ${(stats.size / (1024 * 1024)).toFixed(2)} MB`);
 
     return outputPath;
   } catch (error) {
     console.error("❌ Render failed:", error);
-    
+
     // Clean up partial output if exists
     if (fs.existsSync(outputPath)) {
       fs.unlinkSync(outputPath);
     }
-    
+
     throw error;
   }
 }

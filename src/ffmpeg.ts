@@ -1,10 +1,3 @@
-// REMOVE THESE LINES (lines 1-10):
-// declare module "fluent-ffmpeg" {
-//   const ffmpeg: any;
-//   export default ffmpeg;
-// }
-
-// KEEP EVERYTHING ELSE:
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 
@@ -24,16 +17,11 @@ export function extractAudio(
     ffmpeg(videoPath)
       .noVideo()
       .audioCodec("pcm_s16le")
-      .audioFrequency(16000)  // AssemblyAI recommended frequency
-      .audioChannels(1)       // Mono audio
+      .audioFrequency(16000)
+      .audioChannels(1)
       .format("wav")
       .on("start", (commandLine) => {
         console.log("FFmpeg command:", commandLine);
-      })
-      .on("progress", (progress) => {
-        if (progress.percent) {
-          console.log(`Audio extraction: ${Math.floor(progress.percent)}%`);
-        }
       })
       .on("end", () => {
         console.log("✅ Audio extraction complete");
@@ -47,7 +35,6 @@ export function extractAudio(
   });
 }
 
-// Additional FFmpeg utilities
 export function getVideoInfo(videoPath: string): Promise<any> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(videoPath, (err: any, metadata: any) => {
@@ -57,30 +44,5 @@ export function getVideoInfo(videoPath: string): Promise<any> {
         resolve(metadata);
       }
     });
-  });
-}
-
-export function convertVideo(
-  inputPath: string,
-  outputPath: string,
-  options: any = {}
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const command = ffmpeg(inputPath)
-      .videoCodec(options.videoCodec || "libx264")
-      .audioCodec(options.audioCodec || "aac")
-      .outputOptions(options.outputOptions || [
-        "-pix_fmt yuv420p",
-        "-movflags faststart",
-      ]);
-
-    if (options.width && options.height) {
-      command.size(`${options.width}x${options.height}`);
-    }
-
-    command
-      .on("end", resolve)
-      .on("error", reject)
-      .save(outputPath);
   });
 }

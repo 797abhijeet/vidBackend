@@ -33,12 +33,11 @@ const outputDir = isRender
   : path.join(ROOT, "outputs");
 
 // Create directories if they don't exist
-fs.mkdirSync(uploadDir, { recursive: true });
+
 fs.mkdirSync(outputDir, { recursive: true });
 
 /* ---------- STATIC ---------- */
 app.use("/uploads", express.static(uploadDir));
-app.use("/outputs", express.static(outputDir));
 
 /* ---------- MULTER ---------- */
 const upload = multer({
@@ -79,57 +78,23 @@ app.post("/upload", upload.single("video"), async (req, res) => {
   }
 
   try {
-    const inputPath = req.file.path;
-    const outputName = path
-      .basename(req.file.filename)
-      .replace(/(\.[^/.]+)$/, ".mp4");
-    const outputPath = path.join(uploadDir, outputName);
+    const filePath = req.file.path;
+    const videoUrl = `${getBaseUrl()}/uploads/${req.file.filename}`;
 
-    console.log(`Processing upload: ${req.file.originalname} -> ${outputName}`);
+    console.log(
+      `✅ Upload saved: ${req.file.originalname} -> ${req.file.filename}`
+    );
 
-    await new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
-        .videoCodec("libx264")
-        .audioCodec("copy")
-        .outputOptions([
-          "-pix_fmt yuv420p",
-          "-movflags faststart",
-          "-r 30",
-          "-avoid_negative_ts make_zero",
-        ])
-        .on("progress", (progress: { percent: number; }) => {
-          if (progress.percent) {
-            console.log(`Processing: ${Math.floor(progress.percent)}%`);
-          }
-        })
-        .on("end", () => {
-          console.log(`Video processed: ${outputPath}`);
-          resolve();
-        })
-        .on("error", (err: any) => {
-          console.error("FFmpeg error:", err);
-          reject(err);
-        })
-        .save(outputPath);
-    });
-
-    // Clean up original upload
-    if (fs.existsSync(inputPath) && inputPath !== outputPath) {
-      fs.unlinkSync(inputPath);
-    }
-
-    const videoUrl = `${getBaseUrl()}/uploads/${outputName}`;
-    console.log(`Upload complete: ${videoUrl}`);
-
+    // Just return the saved file path, no processing
     res.json({
       success: true,
       videoPath: videoUrl,
-      filename: outputName,
+      filename: req.file.filename,
     });
   } catch (err: any) {
     console.error("UPLOAD ERROR:", err);
     res.status(500).json({
-      error: "Video processing failed",
+      error: "Upload failed",
       details: err.message,
     });
   }
@@ -176,6 +141,7 @@ app.post("/captions", async (req, res) => {
 });
 
 /* ---------- RENDER ---------- */
+/* ---------- RENDER ---------- */
 app.post("/render", async (req, res) => {
   try {
     const { videoPath, captions, style = "bottom" } = req.body;
@@ -202,15 +168,17 @@ app.post("/render", async (req, res) => {
       throw new Error(`Video file not found: ${filename}`);
     }
 
+    // Call render function (modified version without output folder creation)
     const output = await renderVideo({
       videoPath: localVideoPath,
       captions,
       style,
     });
 
+    // Since we're not using /outputs anymore, we need to serve from /uploads
+    // or use a different approach
     const outputFilename = path.basename(output);
-    const outputUrl = `${getBaseUrl()}/outputs/${outputFilename}`;
-
+    const outputUrl = `${getBaseUrl()}/uploads/${outputFilename}`;
     console.log(`Render complete: ${outputUrl}`);
 
     res.json({

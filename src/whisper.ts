@@ -29,7 +29,7 @@ export async function generateCaptions(videoPath: string) {
     // Extract audio using FFmpeg
     await extractAudio(videoPath, audioPath);
     
-    if (!fs.existsSync(audioPath)) {
+    if (!fs.existsSync(audioPath)) {  
       throw new Error("Audio extraction failed - file not created");
     }
     
