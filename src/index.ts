@@ -19,7 +19,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 /* ---------- APP ---------- */
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "100mb" })); // Increased for video uploads
+app.use(express.json({ limit: "500mb" })); // Increased for video uploads
 
 // For Render deployment, use /tmp directory for file storage
 const ROOT = process.cwd();
@@ -49,7 +49,7 @@ const upload = multer({
     },
   }),
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
+    fileSize: 500 * 1024 * 1024, // 500MB limit
   },
 });
 

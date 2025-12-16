@@ -41,8 +41,8 @@ export async function renderVideo({
     console.log("📦 Bundling Remotion components...");
 
     try {
-      const remotionRoot = path.resolve(ROOT, "../remotion");
-      const remotionEntry = path.join(remotionRoot, "src/index.ts");
+      const remotionRoot = path.join(ROOT, "src", "remotion");
+const remotionEntry = path.join(remotionRoot, "src/index.ts");
 
       // Check if Remotion project exists, fallback to local
       if (!fs.existsSync(remotionEntry)) {
